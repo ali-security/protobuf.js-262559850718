@@ -497,8 +497,16 @@ Writer.prototype.bools = function write_bools(value) {
     return this;
 };
 
-function getLazyView(writer) {
-    return writer.view || (writer.view = new DataView(writer.buf.buffer, writer.buf.byteOffset, writer.buf.byteLength));
+// The view allocation only pays off when amortized over enough writes
+var VIEW_THRESHOLD_FLOAT = 16,
+    VIEW_THRESHOLD_INT   = 128;
+
+function getLazyView(writer, count, threshold) {
+    var view = writer.view;
+    if (view || count < threshold)
+        return view;
+    var buf = writer.buf;
+    return writer.view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
 }
 
 /**
@@ -510,8 +518,13 @@ Writer.prototype.fixed32s = function write_fixed32s(value) {
     var n = value.length, bytes = n * 4;
     this.uint32(bytes); // length is known exactly
     this._reserve(bytes);
-    var p = this.pos, i, dv = getLazyView(this);
-    for (i = 0; i < n; ++i) { dv.setUint32(p, value[i] >>> 0, true); p += 4; }
+    var p = this.pos, i, dv = getLazyView(this, n, VIEW_THRESHOLD_INT);
+    if (dv)
+        for (i = 0; i < n; ++i) { dv.setUint32(p, value[i] >>> 0, true); p += 4; }
+    else {
+        var buf = this.buf;
+        for (i = 0; i < n; ++i) { writeFixed32(value[i] >>> 0, buf, p); p += 4; }
+    }
     this.pos += bytes;
     return this;
 };
@@ -533,8 +546,13 @@ Writer.prototype.fixed64s = function write_fixed64s(value) {
     var n = value.length, bytes = n * 8;
     this.uint32(bytes);
     this._reserve(bytes);
-    var p = this.pos, i, bits, dv = getLazyView(this);
-    for (i = 0; i < n; ++i) { bits = LongBits.from(value[i]); dv.setUint32(p, bits.lo, true); dv.setUint32(p + 4, bits.hi, true); p += 8; }
+    var p = this.pos, i, bits, dv = getLazyView(this, n, VIEW_THRESHOLD_INT);
+    if (dv)
+        for (i = 0; i < n; ++i) { bits = LongBits.from(value[i]); dv.setUint32(p, bits.lo, true); dv.setUint32(p + 4, bits.hi, true); p += 8; }
+    else {
+        var buf = this.buf;
+        for (i = 0; i < n; ++i) { bits = LongBits.from(value[i]); writeFixed32(bits.lo, buf, p); writeFixed32(bits.hi, buf, p + 4); p += 8; }
+    }
     this.pos += bytes;
     return this;
 };
@@ -556,8 +574,13 @@ Writer.prototype.floats = function write_floats(value) {
     var n = value.length, bytes = n * 4;
     this.uint32(bytes);
     this._reserve(bytes);
-    var p = this.pos, i, dv = getLazyView(this);
-    for (i = 0; i < n; ++i) { dv.setFloat32(p, value[i], true); p += 4; }
+    var p = this.pos, i, dv = getLazyView(this, n, VIEW_THRESHOLD_FLOAT);
+    if (dv)
+        for (i = 0; i < n; ++i) { dv.setFloat32(p, value[i], true); p += 4; }
+    else {
+        var buf = this.buf;
+        for (i = 0; i < n; ++i) { util.float.writeFloatLE(value[i], buf, p); p += 4; }
+    }
     this.pos += bytes;
     return this;
 };
@@ -571,8 +594,13 @@ Writer.prototype.doubles = function write_doubles(value) {
     var n = value.length, bytes = n * 8;
     this.uint32(bytes);
     this._reserve(bytes);
-    var p = this.pos, i, dv = getLazyView(this);
-    for (i = 0; i < n; ++i) { dv.setFloat64(p, value[i], true); p += 8; }
+    var p = this.pos, i, dv = getLazyView(this, n, VIEW_THRESHOLD_FLOAT);
+    if (dv)
+        for (i = 0; i < n; ++i) { dv.setFloat64(p, value[i], true); p += 8; }
+    else {
+        var buf = this.buf;
+        for (i = 0; i < n; ++i) { util.float.writeDoubleLE(value[i], buf, p); p += 8; }
+    }
     this.pos += bytes;
     return this;
 };

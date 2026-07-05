@@ -440,10 +440,13 @@ Reader.prototype.bools = function read_bools(array) {
     return array;
 };
 
-function getLazyView(reader, count) {
+// The view allocation only pays off when amortized over enough reads
+var VIEW_THRESHOLD_FLOAT = 8,
+    VIEW_THRESHOLD_INT   = 128;
+
+function getLazyView(reader, count, threshold) {
     var view = reader.view;
-    // The view allocation only pays off when amortized over enough reads
-    if (view || count < 32)
+    if (view || count < threshold)
         return view;
     var buf = reader.buf;
     return reader.view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
@@ -461,7 +464,7 @@ Reader.prototype.fixed32s = function read_fixed32s(array) {
     if (end > this.len) throw indexOutOfRange(this, len);
     var count = len >>> 2, i = array.length, pos = this.pos;
     array.length = i + count;
-    var dv = getLazyView(this, count);
+    var dv = getLazyView(this, count, VIEW_THRESHOLD_INT);
     if (dv)
         for (var k = 0; k < count; ++k, pos += 4) array[i++] = dv.getUint32(pos, true);
     else {
@@ -485,7 +488,7 @@ Reader.prototype.sfixed32s = function read_sfixed32s(array) {
     if (end > this.len) throw indexOutOfRange(this, len);
     var count = len >>> 2, i = array.length, pos = this.pos;
     array.length = i + count;
-    var dv = getLazyView(this, count);
+    var dv = getLazyView(this, count, VIEW_THRESHOLD_INT);
     if (dv)
         for (var k = 0; k < count; ++k, pos += 4) array[i++] = dv.getInt32(pos, true);
     else {
@@ -509,7 +512,7 @@ Reader.prototype.floats = function read_floats(array) {
     if (end > this.len) throw indexOutOfRange(this, len);
     var count = len >>> 2, i = array.length, pos = this.pos;
     array.length = i + count;
-    var dv = getLazyView(this, count);
+    var dv = getLazyView(this, count, VIEW_THRESHOLD_FLOAT);
     if (dv)
         for (var k = 0; k < count; ++k, pos += 4) array[i++] = dv.getFloat32(pos, true);
     else {
@@ -533,7 +536,7 @@ Reader.prototype.doubles = function read_doubles(array) {
     if (end > this.len) throw indexOutOfRange(this, len);
     var count = len >>> 3, i = array.length, pos = this.pos;
     array.length = i + count;
-    var dv = getLazyView(this, count);
+    var dv = getLazyView(this, count, VIEW_THRESHOLD_FLOAT);
     if (dv)
         for (var k = 0; k < count; ++k, pos += 8) array[i++] = dv.getFloat64(pos, true);
     else {
